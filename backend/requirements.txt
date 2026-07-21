@@ -1,0 +1,33 @@
+fastapi
+uvicorn[standard]
+pydantic
+python-dotenv
+sqlalchemy
+
+# --- LLM providers (split by feature) ---
+openai          # Feature 2: Counterfeit Currency vision (OpenRouter, OpenAI SDK)
+groq            # Feature 1: Digital Arrest NLP
+google-genai    # optional Gemini path (citizen assistant)
+
+# --- Fraud graph intelligence (Feature 3) ---
+networkx
+
+# --- Counterfeit currency vision (Feature 2) ---
+opencv-python
+pillow
+torch
+torchvision
+
+# --- Digital arrest NLP + audio deepfake (Feature 1) ---
+transformers
+librosa
+websockets
+
+# --- Geospatial crime pattern intelligence (Feature 4) ---
+h3
+hdbscan
+scipy
+scikit-learn
+
+# --- Shared numerics ---
+numpy
