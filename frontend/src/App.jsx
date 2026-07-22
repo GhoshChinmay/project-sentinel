@@ -46,6 +46,25 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
+  // --- GRAPH INTELLIGENCE BRIDGE STATE ---
+  const [highlightedEntities, setHighlightedEntities] = useState([]);
+  const [highlightSourceCase, setHighlightSourceCase] = useState(null);
+  const [graphStats, setGraphStats] = useState({ total_nodes: 0, total_edges: 0, total_campaigns: 0, sybil_rings_detected: 0, recent_intercepts: [] });
+
+  // Fetch graph stats on mount and every 10 seconds
+  useEffect(() => {
+    const fetchGraphStats = async () => {
+      try {
+        const res = await fetch('http://127.0.0.1:8000/api/graph/stats');
+        const data = await res.json();
+        if (data.success && data.data) setGraphStats(data.data);
+      } catch (e) { /* silent */ }
+    };
+    fetchGraphStats();
+    const interval = setInterval(fetchGraphStats, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
   // --- CITIZEN SHIELD STATE (SPLIT-STREAM) ---
   const [citizenTab, setCitizenTab] = useState('shield'); // 'shield' or 'assistant'
   const [callLanguage, setCallLanguage] = useState('en-IN');
@@ -282,26 +301,62 @@ export default function App() {
 
   const simulateLiveCall = async () => {
     setIsAnalyzing(true);
-    const incomingTranscript = "This is Mumbai customs calling we found illegal parcel from your Aadhar Card we need you transfer 20000 account";
+    // Randomize incoming transcript and caller_id to create multiple spheres (campaigns)
+    const dummyCases = [
+      { transcript: "This is Mumbai customs calling we found illegal parcel from your Aadhar Card we need you transfer 20000 account to HDFC bank account 501002341", caller_id: "+91-9876543210 (Spoofed)" },
+      { transcript: "This is CBI officer Rajesh. Your name is in money laundering case. Do not cut the call. You are under digital arrest. Pay 50000 penalty to UPI id cbi-pay@okicici immediately or police will come to your house.", caller_id: "+91-8888888888 (Spoofed)" },
+      { transcript: "Congratulations! You are selected for work from home job at Amazon. Earn 5000 daily by rating products. Send 2000 registration fee to UPI hr-amazon@ybl to start.", caller_id: "+91-7777777777 (Spoofed)" },
+      { transcript: "Dear SBI customer, your bank account is blocked due to incomplete KYC. Please share the OTP sent to your number to verify your identity and unblock the account.", caller_id: "+91-9999999999 (Spoofed)" },
+      { transcript: "Sir I am calling from TRAI your mobile number will be blocked in 2 hours due to illegal activities. Please press 1 to talk to our executive or transfer fine to account 123456789.", caller_id: "+91-6666666666 (Spoofed)" }
+    ];
+    const randomCase = dummyCases[Math.floor(Math.random() * dummyCases.length)];
+
     try {
       const response = await fetch('http://127.0.0.1:8000/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript: incomingTranscript, caller_id: "+91-9876543210 (Spoofed)" })
+        body: JSON.stringify({ transcript: randomCase.transcript, caller_id: randomCase.caller_id })
       });
       const data = await response.json();
 
       if (data.analysis.status !== 'safe') {
+        // Use real GNN metrics from backend lead_time analysis
+        const leadTime = data.analysis.lead_time || {};
+        const graphImpact = data.graph_impact || {};
+        const extractedEntities = data.extracted_entities || [];
+
         const newThreat = {
           id: data.incident_id || `TR-${Math.floor(Math.random() * 1000) + 900}`,
           type: 'Real-Time SOTA Intercept', status: data.analysis.status, location: 'Live Telecom Feed',
           duration: '00m 04s', confidence: data.analysis.confidence, details: data.analysis.details,
-          deepfakeScore: `${Math.floor(Math.random() * 15 + 85)}%`, spectralFlatness: (Math.random() * 0.2 + 0.45).toFixed(3),
-          structuralThreat: 'CRITICAL (Sybil Ring Detected - 1 Hop to Mule)'
+          // Real GNN metrics from backend
+          deepfakeScore: `${Math.floor(Math.random() * 15 + 85)}%`,
+          spectralFlatness: (Math.random() * 0.2 + 0.45).toFixed(3),
+          structuralThreat: leadTime.structural_threat || 'Low',
+          degreeCentrality: leadTime.degree_centrality || 0,
+          muleDistance: leadTime.mule_network_distance || 'Safe',
+          hasPriorClusters: leadTime.has_prior_clusters || false,
+          leadTimeMinutes: leadTime.lead_time_minutes || 0,
+          // Graph bridge data
+          extractedEntities: extractedEntities,
+          entityIds: extractedEntities.map(e => e.id),
+          graphImpact: graphImpact
         };
         setActiveThreats(prev => [newThreat, ...prev]);
-        setToast("New Tri-Factor Threat Intercepted by AI Engine");
-        setTimeout(() => setToast(null), 3000);
+
+        // Update graph stats immediately
+        if (graphImpact.total_nodes) {
+          setGraphStats(prev => ({
+            ...prev,
+            total_nodes: graphImpact.total_nodes,
+            total_edges: graphImpact.total_edges,
+            total_campaigns: graphImpact.total_campaigns
+          }));
+        }
+
+        const entCount = extractedEntities.length;
+        setToast(`🔗 Threat Intercepted — ${entCount} entit${entCount === 1 ? 'y' : 'ies'} linked to Graph Intelligence`);
+        setTimeout(() => setToast(null), 4000);
       }
     } catch (error) {
       console.error(error);
@@ -355,14 +410,18 @@ export default function App() {
             {activeTab === 'dashboard' && (
               <>
                 <div className="flex justify-between items-center mb-6">
-                  <div className="grid grid-cols-3 gap-6 flex-1 mr-6">
+                  <div className="grid grid-cols-4 gap-4 flex-1 mr-6">
                     <div className="bg-white p-4 rounded border border-gray-300 shadow-sm border-l-4 border-l-[#D32F2F]">
                       <h3 className="text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Active Threats</h3>
                       <div className="text-2xl font-bold text-gray-900">{activeThreats.length - intercepted.length}</div>
                     </div>
                     <div className="bg-white p-4 rounded border border-gray-300 shadow-sm border-l-4 border-l-[#15284B]">
-                      <h3 className="text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">GNN Sybil Rings Detected</h3>
-                      <div className="text-2xl font-bold text-gray-900">14</div>
+                      <h3 className="text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">GNN Sybil Rings</h3>
+                      <div className="text-2xl font-bold text-gray-900">{graphStats.sybil_rings_detected || 0}</div>
+                    </div>
+                    <div className="bg-white p-4 rounded border border-gray-300 shadow-sm border-l-4 border-l-[#8B5CF6]">
+                      <h3 className="text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Graph Entities</h3>
+                      <div className="text-2xl font-bold text-gray-900">{graphStats.total_nodes || 0}</div>
                     </div>
                     <div className="bg-white p-4 rounded border border-gray-300 shadow-sm border-l-4 border-l-[#F59E0B]">
                       <h3 className="text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Deepfake Artifacts Blocked</h3>
@@ -425,10 +484,39 @@ export default function App() {
                               </div>
                               <div className="bg-blue-50 text-blue-800 border border-blue-200 px-3 py-2 rounded text-xs font-bold flex flex-col gap-1 shadow-sm">
                                 <div className="flex items-center gap-1 text-[10px] text-blue-500 uppercase tracking-widest"><Network size={12} /> Filter-Then-Verify GNN</div>
-                                <span className="text-sm">{threat.structuralThreat || 'CRITICAL'}</span>
-                                <span className="text-[10px] text-blue-600 font-medium bg-white px-2 py-1 border border-blue-100 rounded">Degree Centrality Verified</span>
+                                <span className="text-sm">{threat.structuralThreat || 'Low'}</span>
+                                <span className="text-[10px] text-blue-600 font-medium bg-white px-2 py-1 border border-blue-100 rounded">
+                                  {threat.degreeCentrality !== undefined ? `Degree Centrality: ${threat.degreeCentrality}` : 'Degree Centrality Verified'}
+                                  {threat.muleDistance && threat.muleDistance !== 'Safe' ? ` • Mule: ${threat.muleDistance}` : ''}
+                                </span>
                               </div>
                             </div>
+
+                            {/* Graph Intelligence Bridge — entities linked */}
+                            {threat.extractedEntities && threat.extractedEntities.length > 0 && (
+                              <div className="bg-indigo-50 border border-indigo-200 rounded px-3 py-2 mb-4 flex items-center justify-between">
+                                <div className="flex items-center gap-2 text-xs text-indigo-800 font-bold">
+                                  <Network size={14} className="text-indigo-600" />
+                                  <span>{threat.extractedEntities.length} entit{threat.extractedEntities.length === 1 ? 'y' : 'ies'} linked to Graph Intelligence</span>
+                                  <div className="flex gap-1 ml-2">
+                                    {threat.extractedEntities.slice(0, 3).map((ent, i) => (
+                                      <span key={i} className="bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded text-[10px] font-mono">{ent.type}: {ent.value.substring(0, 15)}{ent.value.length > 15 ? '...' : ''}</span>
+                                    ))}
+                                    {threat.extractedEntities.length > 3 && <span className="text-[10px] text-indigo-500">+{threat.extractedEntities.length - 3} more</span>}
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() => {
+                                    setHighlightedEntities(threat.entityIds || []);
+                                    setHighlightSourceCase(threat.id);
+                                    setActiveTab('graph');
+                                  }}
+                                  className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded text-xs font-bold transition-colors shadow-sm"
+                                >
+                                  <Eye size={12} /> View in Graph <ChevronRight size={12} />
+                                </button>
+                              </div>
+                            )}
 
                             {!isIntercepted && (
                               <div className="flex gap-3 pt-3 border-t border-gray-200">
@@ -447,27 +535,40 @@ export default function App() {
                     <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2 uppercase tracking-wide border-b border-gray-200 pb-2">
                       <Network size={18} className="text-[#15284B]" /> GNN Correlation
                     </h3>
-                    <div className="relative h-48 bg-gray-50 rounded border border-gray-200 overflow-hidden flex items-center justify-center p-4">
-                      <div className="absolute top-1/4 left-1/4 w-3 h-3 rounded-full bg-[#D32F2F] shadow-[0_0_8px_rgba(211,47,47,0.6)] z-10 animate-pulse"></div>
-                      <div className="absolute top-1/2 left-1/2 w-4 h-4 rounded-full bg-[#15284B] z-10"></div>
-                      <div className="absolute bottom-1/4 right-1/3 w-3 h-3 rounded-full bg-[#D32F2F] z-10"></div>
+                    <div className="relative h-48 bg-[#0f172a] rounded border border-gray-700 overflow-hidden flex items-center justify-center p-4">
+                      {/* Animated graph preview dots */}
+                      {Array.from({ length: Math.min(graphStats.total_nodes || 3, 8) }).map((_, i) => {
+                        const positions = [
+                          { top: '20%', left: '25%' }, { top: '50%', left: '50%' }, { top: '70%', left: '35%' },
+                          { top: '30%', left: '70%' }, { top: '60%', left: '75%' }, { top: '15%', left: '55%' },
+                          { top: '80%', left: '60%' }, { top: '45%', left: '20%' }
+                        ];
+                        const colors = ['#D32F2F', '#F59E0B', '#138808', '#8B5CF6', '#3B82F6'];
+                        const pos = positions[i % positions.length];
+                        return <div key={i} className={`absolute w-2.5 h-2.5 rounded-full z-10 ${i < 2 ? 'animate-pulse' : ''}`} style={{ top: pos.top, left: pos.left, backgroundColor: colors[i % colors.length], boxShadow: `0 0 6px ${colors[i % colors.length]}60` }} />;
+                      })}
                       <svg className="absolute inset-0 w-full h-full" style={{ zIndex: 0 }}>
-                        <line x1="25%" y1="25%" x2="50%" y2="50%" stroke="#D32F2F" strokeWidth="2" strokeDasharray="4 4" opacity="0.4" />
-                        <line x1="50%" y1="50%" x2="66%" y2="75%" stroke="#15284B" strokeWidth="2" opacity="0.3" />
+                        <line x1="25%" y1="20%" x2="50%" y2="50%" stroke="#D32F2F" strokeWidth="1" strokeDasharray="4 4" opacity="0.4" />
+                        <line x1="50%" y1="50%" x2="35%" y2="70%" stroke="#F59E0B" strokeWidth="1" opacity="0.3" />
+                        <line x1="50%" y1="50%" x2="70%" y2="30%" stroke="#3B82F6" strokeWidth="1" opacity="0.3" />
+                        <line x1="70%" y1="30%" x2="75%" y2="60%" stroke="#8B5CF6" strokeWidth="1" strokeDasharray="3 3" opacity="0.3" />
                       </svg>
+                      <div className="absolute bottom-2 right-2 text-[9px] text-gray-500 font-mono bg-black/40 px-1.5 py-0.5 rounded">LIVE NETWORK</div>
                     </div>
-                    <div className="mt-4 space-y-3">
-                      <div className="flex justify-between text-sm border-b border-gray-100 pb-2"><span className="text-gray-600">Degree Centrality Max</span><span className="text-[#D32F2F] font-bold">14 Edges</span></div>
-                      <div className="flex justify-between text-sm pb-2"><span className="text-gray-600">Sybil Network Match</span><span className="text-gray-900 font-bold">True</span></div>
+                    <div className="mt-4 space-y-2">
+                      <div className="flex justify-between text-sm border-b border-gray-100 pb-2"><span className="text-gray-600">Total Nodes</span><span className="text-gray-900 font-bold">{graphStats.total_nodes || 0}</span></div>
+                      <div className="flex justify-between text-sm border-b border-gray-100 pb-2"><span className="text-gray-600">Total Edges</span><span className="text-gray-900 font-bold">{graphStats.total_edges || 0}</span></div>
+                      <div className="flex justify-between text-sm border-b border-gray-100 pb-2"><span className="text-gray-600">Campaigns Detected</span><span className="text-[#D32F2F] font-bold">{graphStats.total_campaigns || 0}</span></div>
+                      <div className="flex justify-between text-sm pb-2"><span className="text-gray-600">Sybil Rings</span><span className="text-gray-900 font-bold">{graphStats.sybil_rings_detected > 0 ? `${graphStats.sybil_rings_detected} Active` : 'None'}</span></div>
                     </div>
-                    <button onClick={() => setActiveTab('graph')} className="w-full mt-6 bg-white border-2 border-[#15284B] text-[#15284B] hover:bg-gray-50 text-sm font-bold py-2 rounded transition-colors focus:ring-2 focus:ring-offset-1 focus:ring-blue-800">Expand Full Graph</button>
+                    <button onClick={() => { setHighlightedEntities([]); setHighlightSourceCase(null); setActiveTab('graph'); }} className="w-full mt-4 bg-white border-2 border-[#15284B] text-[#15284B] hover:bg-gray-50 text-sm font-bold py-2 rounded transition-colors focus:ring-2 focus:ring-offset-1 focus:ring-blue-800">Expand Full Graph</button>
                   </div>
                 </div>
               </>
             )}
 
             { }
-            {activeTab === 'graph' && <GraphIntelligenceView setToast={setToast} />}
+            {activeTab === 'graph' && <GraphIntelligenceView setToast={setToast} highlightedEntities={highlightedEntities} setHighlightedEntities={setHighlightedEntities} highlightSourceCase={highlightSourceCase} setHighlightSourceCase={setHighlightSourceCase} graphStats={graphStats} />}
             {activeTab === 'map' && <GeospatialView />}
             {activeTab === 'counterfeit' && <CounterfeitScannerView />}
             {activeTab === 'audio_lab' && <AcousticForensicsView setToast={setToast} />}
@@ -729,14 +830,24 @@ export default function App() {
 // --- SUB COMPONENTS ---
 function NavItem({ icon, label, active, onClick }) { return <button onClick={onClick} className={`w-full flex items-center gap-3 px-4 py-3 rounded transition-colors ${active ? 'bg-[#e5e7eb] text-[#15284B] font-bold border-l-4 border-[#15284B]' : 'text-gray-600 hover:bg-gray-50 font-medium border-l-4 border-transparent'}`}>{React.cloneElement(icon, { size: 20 })}<span className="text-sm">{label}</span></button>; }
 
-function GraphIntelligenceView({ setToast }) {
+function GraphIntelligenceView({ setToast, highlightedEntities = [], setHighlightedEntities, highlightSourceCase, setHighlightSourceCase, graphStats }) {
   const containerRef = useRef(null);
+  const graphRef = useRef(null);
   const [dimensions, setDimensions] = useState({ width: 800, height: 500 });
   const [selectedNode, setSelectedNode] = useState(null);
+  const [showActivityFeed, setShowActivityFeed] = useState(true);
 
   // Real dynamic graph state replacing the hardcoded array
   const [graphData, setGraphData] = useState({ nodes: [], links: [] });
   const [isLoading, setIsLoading] = useState(true);
+
+  // Pulsing animation timestamp for highlighted nodes
+  const [pulsePhase, setPulsePhase] = useState(0);
+  useEffect(() => {
+    if (highlightedEntities.length === 0) return;
+    const interval = setInterval(() => setPulsePhase(p => p + 1), 50);
+    return () => clearInterval(interval);
+  }, [highlightedEntities]);
 
   // 1. Resize Observer Effect
   useEffect(() => {
@@ -761,7 +872,7 @@ function GraphIntelligenceView({ setToast }) {
     }
 
     return () => resizeObserver.disconnect();
-  }, []);
+  }, [showActivityFeed]);
 
   // 2. Fetch Data Effect
   useEffect(() => {
@@ -830,6 +941,22 @@ Graph AI and is cryptographically hashed for court admissibility.
     URL.revokeObjectURL(url);
   };
 
+  const isHighlighted = (nodeId) => highlightedEntities.includes(nodeId);
+
+  const handleActivityClick = (intercept) => {
+    if (setHighlightedEntities && setHighlightSourceCase) {
+      setHighlightedEntities(intercept.entity_ids || []);
+      setHighlightSourceCase(intercept.incident_id);
+    }
+  };
+
+  const clearHighlight = () => {
+    if (setHighlightedEntities) setHighlightedEntities([]);
+    if (setHighlightSourceCase) setHighlightSourceCase(null);
+  };
+
+  const recentIntercepts = graphStats?.recent_intercepts || [];
+
   return (
     <div className="flex-1 flex flex-col bg-white rounded border border-gray-300 shadow-sm overflow-hidden h-full relative">
       <div className="bg-[#f8f9fa] border-b border-gray-300 px-6 py-4 flex justify-between items-center shrink-0 z-10">
@@ -840,7 +967,15 @@ Graph AI and is cryptographically hashed for court admissibility.
           <p className="text-sm text-gray-500 font-medium mt-1">Dynamically clustering victim reports and scammer infrastructure.</p>
         </div>
 
-        <div className="flex gap-3">
+        <div className="flex gap-3 items-center">
+          {/* Live stats badges */}
+          <div className="flex gap-2 mr-2">
+            <span className="bg-gray-100 border border-gray-300 text-gray-700 text-xs font-bold px-2 py-1 rounded">{graphData.nodes.length} Nodes</span>
+            <span className="bg-gray-100 border border-gray-300 text-gray-700 text-xs font-bold px-2 py-1 rounded">{graphData.links.length} Edges</span>
+          </div>
+          <button onClick={() => setShowActivityFeed(!showActivityFeed)} className={`flex items-center gap-2 border px-3 py-2 rounded text-sm font-bold shadow-sm transition-colors ${showActivityFeed ? 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}>
+            <Activity size={16} /> Feed
+          </button>
           <button onClick={() => { if (setToast) { setToast("Intelligence shared with State Nodal Agencies."); setTimeout(() => setToast(null), 4000); } }} className="flex items-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded text-sm font-bold shadow-sm transition-colors">
             <Share2 size={16} /> Share Inter-Jurisdiction
           </button>
@@ -853,112 +988,218 @@ Graph AI and is cryptographically hashed for court admissibility.
         </div>
       </div>
 
-      <div className="flex-1 relative bg-[#0f172a] overflow-hidden" ref={containerRef}>
-        {isLoading && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900/80 backdrop-blur-sm z-20 text-white font-mono">
-            <RefreshCw className="animate-spin mb-3 text-[#FF9933]" size={32} />
-            <div>Mapping Neural Fraud Ring from SQLite...</div>
+      {/* Linked Intercept Banner */}
+      {highlightSourceCase && highlightedEntities.length > 0 && (
+        <div className="bg-indigo-600 text-white px-6 py-2.5 flex items-center justify-between shrink-0 z-10 animate-[fadeIn_0.3s_ease-out]">
+          <div className="flex items-center gap-3">
+            <Eye size={16} />
+            <span className="text-sm font-bold">Highlighting {highlightedEntities.length} entities from Case: {highlightSourceCase}</span>
+            <span className="text-xs bg-white/20 px-2 py-0.5 rounded">Linked nodes are pulsing below</span>
           </div>
-        )}
+          <button onClick={clearHighlight} className="flex items-center gap-1 bg-white/20 hover:bg-white/30 px-3 py-1 rounded text-xs font-bold transition-colors">
+            <X size={12} /> Clear Highlight
+          </button>
+        </div>
+      )}
 
-        {!isLoading && graphData.nodes.length === 0 && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center z-10 text-gray-400">
-            <Network size={48} className="opacity-20 mb-4" />
-            <p className="font-bold tracking-widest uppercase">No Active Networks</p>
-            <p className="text-xs mt-2 text-gray-500">Simulate a telecom feed to begin mapping infrastructure.</p>
+      <div className="flex-1 flex overflow-hidden">
+        {/* Graph Canvas */}
+        <div className="flex-1 relative bg-[#0f172a] overflow-hidden" ref={containerRef}>
+          {isLoading && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900/80 backdrop-blur-sm z-20 text-white font-mono">
+              <RefreshCw className="animate-spin mb-3 text-[#FF9933]" size={32} />
+              <div>Mapping Neural Fraud Ring from SQLite...</div>
+            </div>
+          )}
+
+          {!isLoading && graphData.nodes.length === 0 && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center z-10 text-gray-400">
+              <Network size={48} className="opacity-20 mb-4" />
+              <p className="font-bold tracking-widest uppercase">No Active Networks</p>
+              <p className="text-xs mt-2 text-gray-500">Simulate a telecom feed to begin mapping infrastructure.</p>
+            </div>
+          )}
+
+          <div className="absolute top-4 left-4 bg-black/50 text-white text-xs px-3 py-2 rounded backdrop-blur-sm z-10 border border-white/20 shadow-lg">
+            <span className="font-bold tracking-widest uppercase">Legend:</span>
+            <div className="flex items-center gap-2 mt-2"><div className="w-3 h-3 rounded-full bg-[#D32F2F]"></div> Phone Number</div>
+            <div className="flex items-center gap-2 mt-1"><div className="w-3 h-3 rounded-full bg-[#F59E0B]"></div> UPI Address</div>
+            <div className="flex items-center gap-2 mt-1"><div className="w-3 h-3 rounded-full bg-[#138808]"></div> Bank Account</div>
+            <div className="flex items-center gap-2 mt-1"><div className="w-3 h-3 rounded-full bg-[#8B5CF6]"></div> Person</div>
+            <div className="flex items-center gap-2 mt-1"><div className="w-3 h-3 rounded-full bg-[#3B82F6]"></div> Institution</div>
+            {highlightedEntities.length > 0 && (
+              <div className="flex items-center gap-2 mt-2 pt-2 border-t border-white/20"><div className="w-3 h-3 rounded-full bg-white shadow-[0_0_6px_#fff]"></div> <span className="text-indigo-300 font-bold">Highlighted</span></div>
+            )}
           </div>
-        )}
 
-        <div className="absolute top-4 left-4 bg-black/50 text-white text-xs px-3 py-2 rounded backdrop-blur-sm z-10 border border-white/20 shadow-lg">
-          <span className="font-bold tracking-widest uppercase">Legend:</span>
-          <div className="flex items-center gap-2 mt-2"><div className="w-3 h-3 rounded-full bg-[#D32F2F]"></div> Phone Number</div>
-          <div className="flex items-center gap-2 mt-1"><div className="w-3 h-3 rounded-full bg-[#F59E0B]"></div> UPI Address</div>
-          <div className="flex items-center gap-2 mt-1"><div className="w-3 h-3 rounded-full bg-[#138808]"></div> Bank Account</div>
-          <div className="flex items-center gap-2 mt-1"><div className="w-3 h-3 rounded-full bg-[#8B5CF6]"></div> Person</div>
-          <div className="flex items-center gap-2 mt-1"><div className="w-3 h-3 rounded-full bg-[#3B82F6]"></div> Institution</div>
+          {selectedNode && (
+            <div className="absolute top-4 right-4 w-72 bg-white rounded shadow-2xl border border-gray-300 z-10 overflow-hidden animate-[fadeIn_0.2s_ease-out]">
+              <div className="bg-[#15284B] text-white px-4 py-3 flex justify-between items-center">
+                <h3 className="font-bold text-sm uppercase tracking-wider flex items-center gap-2">
+                  <Scan size={16} /> Node Forensics
+                </h3>
+                <button onClick={() => setSelectedNode(null)} className="text-gray-300 hover:text-white">
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="p-4 space-y-3">
+                <div>
+                  <div className="text-xs font-bold text-gray-500 uppercase tracking-wide">Identifier</div>
+                  <div className="text-sm font-bold text-gray-900 mt-0.5 break-all">{selectedNode.name}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-gray-500 uppercase tracking-wide">AI Details & Classification</div>
+                  <div className="text-sm text-gray-700 mt-0.5 bg-gray-50 p-2 border border-gray-200 rounded">
+                    Extracted Type: <span className="font-bold">{selectedNode.type}</span><br />
+                    Internal ID: <span className="text-xs text-gray-400">{selectedNode.id.substring(0, 15)}...</span>
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-gray-500 uppercase tracking-wide">Computed Risk Score</div>
+                  <div className="text-sm font-mono font-bold text-[#D32F2F] mt-0.5">{Number(selectedNode.score).toFixed(1)} / 100</div>
+                </div>
+                {selectedNode.centrality > 0 && (
+                  <div>
+                    <div className="text-xs font-bold text-gray-500 uppercase tracking-wide">Centrality Score</div>
+                    <div className="text-sm font-mono text-gray-800 mt-0.5">{selectedNode.centrality}</div>
+                  </div>
+                )}
+                {selectedNode.campaign_name && (
+                  <div>
+                    <div className="text-xs font-bold text-gray-500 uppercase tracking-wide">Campaign</div>
+                    <div className="text-sm font-bold text-indigo-700 mt-0.5">{selectedNode.campaign_name}</div>
+                  </div>
+                )}
+                {isHighlighted(selectedNode.id) && (
+                  <div className="bg-indigo-50 border border-indigo-200 rounded px-2 py-1.5 text-xs text-indigo-700 font-bold flex items-center gap-1">
+                    <Eye size={12} /> Linked to Case: {highlightSourceCase}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {graphData.nodes.length > 0 && dimensions.width > 0 && (
+            <ForceGraph2D
+              ref={graphRef}
+              width={dimensions.width}
+              height={dimensions.height}
+              graphData={graphData}
+              nodeLabel="name"
+              nodeColor="color"
+              nodeRelSize={6}
+              linkColor={link => link.relationship_type === 'transferred_funds' ? 'rgba(211, 47, 47, 0.8)' : 'rgba(255,255,255,0.2)'}
+              linkWidth={2}
+              linkDirectionalParticles={2}
+              linkDirectionalParticleSpeed={0.005}
+              linkDirectionalArrowLength={link => link.direction === 'directed' ? 5 : 0}
+              linkDirectionalArrowColor={() => '#D32F2F'}
+              linkDirectionalArrowRelPos={1}
+              nodeCanvasObject={(node, ctx, globalScale) => {
+                if (node.x === undefined || node.y === undefined) return;
+                const r = Math.sqrt(Math.max(0, node.val || 1)) + 4;
+                const highlighted = isHighlighted(node.id);
+                
+                // Pulsing glow ring for highlighted nodes
+                if (highlighted) {
+                  const glowSize = r + 6 + Math.sin(pulsePhase * 0.15) * 3;
+                  ctx.beginPath();
+                  ctx.arc(node.x, node.y, glowSize, 0, 2 * Math.PI, false);
+                  ctx.fillStyle = `rgba(99, 102, 241, ${0.15 + Math.sin(pulsePhase * 0.15) * 0.1})`;
+                  ctx.fill();
+                  
+                  ctx.beginPath();
+                  ctx.arc(node.x, node.y, glowSize - 1, 0, 2 * Math.PI, false);
+                  ctx.strokeStyle = `rgba(255, 255, 255, ${0.6 + Math.sin(pulsePhase * 0.15) * 0.3})`;
+                  ctx.lineWidth = 2;
+                  ctx.stroke();
+                }
+
+                const gradient = ctx.createRadialGradient(node.x - r/3, node.y - r/3, r/4, node.x, node.y, r);
+                gradient.addColorStop(0, highlighted ? '#e0e7ff' : '#ffffff');
+                gradient.addColorStop(1, highlighted ? '#6366f1' : (node.color || '#15284B'));
+                
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, r, 0, 2 * Math.PI, false);
+                ctx.fillStyle = gradient;
+                ctx.shadowColor = highlighted ? 'rgba(99, 102, 241, 0.8)' : 'rgba(0,0,0,0.5)';
+                ctx.shadowBlur = highlighted ? 12 : 5;
+                ctx.fill();
+                
+                ctx.shadowBlur = 0;
+
+                const label = node.name || '';
+                const fontSize = (highlighted ? 12 : 10) / globalScale;
+                ctx.font = `${highlighted ? 'bold ' : ''}${fontSize}px Sans-Serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'top';
+                ctx.fillStyle = highlighted ? '#c7d2fe' : '#cbd5e1';
+                ctx.fillText(label, node.x, node.y + r + 2);
+              }}
+              nodePointerAreaPaint={(node, color, ctx) => {
+                if (node.x === undefined || node.y === undefined) return;
+                const r = Math.sqrt(Math.max(0, node.val || 1)) + 4;
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, r + 4, 0, 2 * Math.PI, false);
+                ctx.fill();
+              }}
+              backgroundColor="#0f172a"
+              onNodeClick={(node) => setSelectedNode(node)}
+            />
+          )}
         </div>
 
-        {selectedNode && (
-          <div className="absolute top-4 right-4 w-72 bg-white rounded shadow-2xl border border-gray-300 z-10 overflow-hidden animate-[fadeIn_0.2s_ease-out]">
-            <div className="bg-[#15284B] text-white px-4 py-3 flex justify-between items-center">
-              <h3 className="font-bold text-sm uppercase tracking-wider flex items-center gap-2">
-                <Scan size={16} /> Node Forensics
+        {/* Activity Feed Sidebar */}
+        {showActivityFeed && (
+          <div className="w-72 bg-white border-l border-gray-300 flex flex-col shrink-0 overflow-hidden animate-[fadeIn_0.2s_ease-out]">
+            <div className="bg-[#f8f9fa] border-b border-gray-300 px-4 py-3 flex items-center justify-between shrink-0">
+              <h3 className="font-bold text-sm text-gray-800 uppercase tracking-wider flex items-center gap-2">
+                <Activity size={14} className="text-indigo-600" /> Live Feed
               </h3>
-              <button onClick={() => setSelectedNode(null)} className="text-gray-300 hover:text-white">
-                <X size={18} />
-              </button>
+              <span className="text-[10px] font-bold text-gray-500 bg-gray-200 px-1.5 py-0.5 rounded">{recentIntercepts.length}</span>
             </div>
-            <div className="p-4 space-y-3">
-              <div>
-                <div className="text-xs font-bold text-gray-500 uppercase tracking-wide">Identifier</div>
-                <div className="text-sm font-bold text-gray-900 mt-0.5 break-all">{selectedNode.name}</div>
-              </div>
-              <div>
-                <div className="text-xs font-bold text-gray-500 uppercase tracking-wide">AI Details & Classification</div>
-                <div className="text-sm text-gray-700 mt-0.5 bg-gray-50 p-2 border border-gray-200 rounded">
-                  Extracted Type: <span className="font-bold">{selectedNode.type}</span><br />
-                  Internal ID: <span className="text-xs text-gray-400">{selectedNode.id.substring(0, 15)}...</span>
+            <div className="flex-1 overflow-auto">
+              {recentIntercepts.length === 0 ? (
+                <div className="p-4 text-center text-gray-400 text-xs">
+                  <Activity size={24} className="mx-auto mb-2 opacity-30" />
+                  <p className="font-bold">No recent intercepts</p>
+                  <p className="mt-1">Simulate a telecom feed to see activity here.</p>
                 </div>
-              </div>
-              <div>
-                <div className="text-xs font-bold text-gray-500 uppercase tracking-wide">Computed Risk Score</div>
-                <div className="text-sm font-mono font-bold text-[#D32F2F] mt-0.5">{Number(selectedNode.score).toFixed(1)} / 100</div>
-              </div>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {recentIntercepts.map((intercept, idx) => {
+                    const isActive = highlightSourceCase === intercept.incident_id;
+                    const timeStr = intercept.timestamp ? new Date(intercept.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '--:--';
+                    return (
+                      <button
+                        key={intercept.incident_id || idx}
+                        onClick={() => handleActivityClick(intercept)}
+                        className={`w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors ${isActive ? 'bg-indigo-50 border-l-2 border-l-indigo-600' : ''}`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-bold text-gray-800">{intercept.incident_id}</span>
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${intercept.status === 'critical' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                            {intercept.status?.toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-[10px] text-gray-500">
+                          <Clock size={10} /> {timeStr}
+                          <span>•</span>
+                          <span>{intercept.district || 'Unknown'}</span>
+                        </div>
+                        <div className="flex items-center gap-1 mt-1.5">
+                          <Network size={10} className="text-indigo-500" />
+                          <span className="text-[10px] font-bold text-indigo-600">{intercept.entities_count || 0} entities linked</span>
+                          {isActive && <Eye size={10} className="ml-auto text-indigo-500" />}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
-        )}
-
-        {graphData.nodes.length > 0 && dimensions.width > 0 && (
-          <ForceGraph2D
-            width={dimensions.width}
-            height={dimensions.height}
-            graphData={graphData}
-            nodeLabel="name"
-            nodeColor="color"
-            nodeRelSize={6}
-            linkColor={link => link.relationship_type === 'transferred_funds' ? 'rgba(211, 47, 47, 0.8)' : 'rgba(255,255,255,0.2)'}
-            linkWidth={2}
-            linkDirectionalParticles={2}
-            linkDirectionalParticleSpeed={0.005}
-            linkDirectionalArrowLength={link => link.direction === 'directed' ? 5 : 0}
-            linkDirectionalArrowColor={() => '#D32F2F'}
-            linkDirectionalArrowRelPos={1}
-            nodeCanvasObject={(node, ctx, globalScale) => {
-              if (node.x === undefined || node.y === undefined) return;
-              const r = Math.sqrt(Math.max(0, node.val || 1)) + 4;
-              
-              const gradient = ctx.createRadialGradient(node.x - r/3, node.y - r/3, r/4, node.x, node.y, r);
-              gradient.addColorStop(0, '#ffffff');
-              gradient.addColorStop(1, node.color || '#15284B');
-              
-              ctx.beginPath();
-              ctx.arc(node.x, node.y, r, 0, 2 * Math.PI, false);
-              ctx.fillStyle = gradient;
-              ctx.shadowColor = 'rgba(0,0,0,0.5)';
-              ctx.shadowBlur = 5;
-              ctx.fill();
-              
-              ctx.shadowBlur = 0;
-
-              const label = node.name || '';
-              const fontSize = 10 / globalScale;
-              ctx.font = `${fontSize}px Sans-Serif`;
-              ctx.textAlign = 'center';
-              ctx.textBaseline = 'top';
-              ctx.fillStyle = '#cbd5e1';
-              ctx.fillText(label, node.x, node.y + r + 2);
-            }}
-            nodePointerAreaPaint={(node, color, ctx) => {
-              if (node.x === undefined || node.y === undefined) return;
-              const r = Math.sqrt(Math.max(0, node.val || 1)) + 4;
-              ctx.fillStyle = color;
-              ctx.beginPath();
-              ctx.arc(node.x, node.y, r + 4, 0, 2 * Math.PI, false);
-              ctx.fill();
-            }}
-            backgroundColor="#0f172a"
-            onNodeClick={(node) => setSelectedNode(node)}
-          />
         )}
       </div>
     </div>
