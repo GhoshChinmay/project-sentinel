@@ -32,12 +32,83 @@ Current systems react *after* the crime. Sentinel sits directly between scammers
 - **Live Call Shield:** Real-time transcriptions & AI threat alerts (Safe / Warning / Critical) directly during calls.
 - **AI Fraud Assistant:** Multi-lingual conversational AI for analyzing SMS, links, and drafting NCRB complaints.
 
-## ✦ Architecture
-Sentinel fuses modern frontend tooling with powerful, low-latency AI inference:
+## ✦ System Architecture
 
-- **Frontend:** React 19, Vite, Tailwind CSS, Leaflet Maps, Web Speech API
-- **Backend:** FastAPI, SQLite, SQLAlchemy, NetworkX, scikit-learn
-- **AI Engines:** Groq SDK (LLaMA 3.3 70B Versatile), LLaMA 4 Scout (Vision)
+Sentinel fuses modern frontend tooling with powerful, low-latency AI inference through a split-stream architecture.
+
+```mermaid
+graph TD
+    %% Define Styles
+    classDef frontend fill:#3b82f6,stroke:#1e3a8a,stroke-width:2px,color:#fff,font-weight:bold;
+    classDef backend fill:#10b981,stroke:#047857,stroke-width:2px,color:#fff,font-weight:bold;
+    classDef db fill:#f59e0b,stroke:#b45309,stroke-width:2px,color:#fff,font-weight:bold;
+    classDef external fill:#ef4444,stroke:#991b1b,stroke-width:2px,color:#fff,font-weight:bold;
+
+    %% Frontend Components
+    subgraph Frontend [Client Tier (React + Vite)]
+        direction TB
+        NP[Law Enforcement Nodal Portal]
+        CS[Citizen Shield App]
+    end
+
+    %% Backend Components
+    subgraph Backend [Backend API Tier (FastAPI)]
+        direction TB
+        API[API Gateway / WebSocket]
+        NLP[NLP & Semantics Engine]
+        Acoustic[Tri-Layer Acoustic Forensics]
+        Vision[Vision AI Engine]
+        Graph[Graph Intelligence & Correlation]
+        Geo[GCPI Geo-Spatial Engine]
+        Evidence[Evidence Generator]
+
+        API --> NLP
+        API --> Acoustic
+        API --> Vision
+        API --> Geo
+        API --> Graph
+        NLP --> Graph
+        Graph --> Evidence
+    end
+
+    %% Database
+    subgraph Storage [Data Tier]
+        DB[(SQLite / SQLAlchemy)]
+    end
+
+    %% AI Models
+    subgraph AI [External AI Services]
+        Groq[Groq / LLaMA 3.3]
+        OpenRouter[Vision API]
+    end
+
+    %% Connections
+    NP <-->|REST & WS| API
+    CS <-->|REST & WS| API
+
+    NLP <--> Groq
+    Vision <--> OpenRouter
+
+    Backend --> DB
+    
+    class NP,CS frontend;
+    class API,NLP,Acoustic,Vision,Graph,Geo,Evidence backend;
+    class DB db;
+    class Groq,OpenRouter external;
+```
+
+### Architecture Details
+
+1. **Client Tier**: 
+   - **Citizen Shield** records ambient audio via the Web Speech API and MediaRecorder, instantly sending raw data over WebSocket.
+   - **Nodal Portal** features React-Leaflet maps for geo-spatial intelligence and interactive force-directed graphs for threat correlation.
+2. **Backend API Tier (FastAPI)**: Uses a Split-Stream ingestion model. 
+   - **Lane 1 (Semantics)** analyzes transcribed speech for fraud scripts and extracts named entities using Groq.
+   - **Lane 2 (Acoustics)** runs an ensemble model to detect deepfakes by analyzing voice biomechanics, spectral flatness, and Wav2Vec2 features.
+3. **Core Intelligence Engines**: 
+   - **Graph Intelligence**: Correlates newly extracted entities against known Sybil rings and calculates centrality scores to track money mule networks.
+   - **GCPI Engine**: Generates predictive geo-spatial hexbins (H3) and identifies emerging threat clusters in real-time.
+4. **Data Tier**: Stores incidents, entities, graph relationships, and geospatial events in SQLite, managed through SQLAlchemy ORM.
 
 ## ✦ Quick Start
 

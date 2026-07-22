@@ -3,16 +3,16 @@ import {
   ShieldAlert, Activity, Network, Scan, MessageSquareWarning,
   PhoneCall, MapPin, AlertTriangle, CheckCircle2, Lock,
   PauseCircle, X, RefreshCw, Smartphone, Mic, MicOff, Globe,
-  Download, Share2, UploadCloud, FileSearch, Fingerprint, Fingerprint as FingerprintIcon,
+  Download, Share2, UploadCloud, FileSearch, Fingerprint,
   MessageCircle, FileText, Send, ChevronRight, Check, Map,
-  Radio, Cpu, Volume2, Clock, Layers, Target, Thermometer, Shield, TrendingUp, Users, Eye
+  Radio, Cpu, Volume2, Clock, Layers, Target, Shield, TrendingUp, Users, Eye
 } from 'lucide-react';
 import ForceGraph2D from 'react-force-graph-2d';
 
 import { MapContainer, TileLayer, Marker, Popup, Circle, CircleMarker, useMap, Polygon, Tooltip } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import * as h3 from 'h3-js';
+// import * as h3 from 'h3-js';
 
 // Fix for Leaflet default icon paths in modern bundlers like Vite
 delete L.Icon.Default.prototype._getIconUrl;
@@ -58,7 +58,7 @@ export default function App() {
         const res = await fetch('http://127.0.0.1:8000/api/graph/stats');
         const data = await res.json();
         if (data.success && data.data) setGraphStats(data.data);
-      } catch (e) { /* silent */ }
+      } catch { /* silent */ }
     };
     fetchGraphStats();
     const interval = setInterval(fetchGraphStats, 10000);
@@ -88,6 +88,7 @@ export default function App() {
 
   // Update master shield status if EITHER sensor trips
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (nlpThreat === 'critical' || audioThreat === 'critical') setShieldStatus('critical');
     else if (nlpThreat === 'warning' || audioThreat === 'warning') setShieldStatus('warning');
     else setShieldStatus('safe');
@@ -238,6 +239,7 @@ export default function App() {
       }
 
     } catch (err) {
+      console.error(err);
       setToast("Microphone access denied. Please allow permissions.");
       setTimeout(() => setToast(null), 4000);
     }
@@ -247,7 +249,7 @@ export default function App() {
     if (audioIntervalRef.current) clearInterval(audioIntervalRef.current);
     if (recognitionRef.current) recognitionRef.current.stop();
     if (wsRef.current) {
-      try { wsRef.current.close(); } catch(e) { /* ignore */ }
+      try { wsRef.current.close(); } catch { /* ignore */ }
       wsRef.current = null;
     }
     if (streamRef.current) {
@@ -293,6 +295,7 @@ export default function App() {
         setChatMessages(prev => [...prev, botMsg]);
       }
     } catch (error) {
+      console.error(error);
       setChatMessages(prev => [...prev, { id: Date.now() + 1, sender: 'bot', text: 'Network error. Cannot reach AI.', status: 'error', showNcrb: false }]);
     } finally {
       setIsChatLoading(false);
@@ -1208,6 +1211,7 @@ Graph AI and is cryptographically hashed for court admissibility.
 
 function MapResizer() { const map = useMap(); useEffect(() => { const timer = setTimeout(() => { map.invalidateSize(); }, 200); return () => clearTimeout(timer); }, [map]); return null; }
 
+// eslint-disable-next-line no-unused-vars
 function LegacyGeospatialView() {
   const [incidents, setIncidents] = useState([]);
   const [hotspots, setHotspots] = useState([]);
@@ -1259,6 +1263,37 @@ function LegacyGeospatialView() {
     </div>
   );
 }
+
+// Forecast sparkline SVG renderer
+const ForecastSparkline = ({ forecast }) => {
+  if (!forecast || !forecast.forecast || forecast.forecast.length === 0) return null;
+  const all = [...(forecast.historical || []).slice(-7), ...forecast.forecast];
+  const max = Math.max(...all, 1);
+  const w = 200, h = 50;
+  const points = all.map((v, i) => `${(i / (all.length - 1)) * w},${h - (v / max) * h}`).join(' ');
+  const histLen = (forecast.historical || []).slice(-7).length;
+  const dividerX = histLen > 0 ? (histLen / all.length) * w : 0;
+
+  return (
+    <svg width={w} height={h + 10} className="mt-1">
+      <line x1={dividerX} y1={0} x2={dividerX} y2={h} stroke="#9CA3AF" strokeDasharray="3,3" strokeWidth={1} />
+      <polyline fill="none" stroke="#3B82F6" strokeWidth={2} points={points} />
+      <text x={2} y={h + 9} fontSize={8} fill="#9CA3AF">History</text>
+      <text x={dividerX + 4} y={h + 9} fontSize={8} fill="#F59E0B">Forecast</text>
+    </svg>
+  );
+};
+
+// Map fly-to helper component
+const FlyToCell = ({ target }) => {
+  const map = useMap();
+  useEffect(() => {
+    if (target) {
+      map.flyTo([target.lat, target.lng], 10, { duration: 1.2 });
+    }
+  }, [target, map]);
+  return null;
+};
 
 function GCPICommandCentre() {
   const [data, setData] = useState(null);
@@ -1313,28 +1348,31 @@ function GCPICommandCentre() {
   };
 
   useEffect(() => {
-    setIsLoading(true);
+    Promise.resolve().then(() => setIsLoading(true));
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layers, timeHorizon]);
 
   // 10-second polling for near-real-time updates
   useEffect(() => {
     const interval = setInterval(() => { fetchData(); }, 10000);
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layers, timeHorizon]);
 
   // Fetch forecast for drill-down
   useEffect(() => {
-    if (!selectedHex) { setForecastData(null); return; }
+    if (!selectedHex) { Promise.resolve().then(() => setForecastData(null)); return; }
     const fetchForecast = async () => {
       try {
         const res = await fetch(`http://127.0.0.1:8000/api/gcpi/forecast/${encodeURIComponent(selectedHex.cell_id)}?days=${timeHorizon}`);
         const json = await res.json();
         if (json.success) setForecastData(json.data);
-      } catch (e) { console.error("Forecast fetch error:", e); }
+      } catch (error) { console.error("Forecast fetch error:", error); }
     };
     fetchForecast();
-  }, [selectedHex]);
+  }, [selectedHex, timeHorizon]);
 
   const toggleLayer = (layer) => setLayers(prev => ({...prev, [layer]: !prev[layer]}));
 
@@ -1372,42 +1410,13 @@ function GCPICommandCentre() {
         setToast(json.error || 'Failed to generate intel package.');
         setTimeout(() => setToast(null), 4000);
       }
-    } catch (e) {
+    } catch (error) {
+      console.error(error);
       setToast('Network error generating intel package.');
       setTimeout(() => setToast(null), 4000);
     }
   };
 
-  // Forecast sparkline SVG renderer
-  const ForecastSparkline = ({ forecast }) => {
-    if (!forecast || !forecast.forecast || forecast.forecast.length === 0) return null;
-    const all = [...(forecast.historical || []).slice(-7), ...forecast.forecast];
-    const max = Math.max(...all, 1);
-    const w = 200, h = 50;
-    const points = all.map((v, i) => `${(i / (all.length - 1)) * w},${h - (v / max) * h}`).join(' ');
-    const histLen = (forecast.historical || []).slice(-7).length;
-    const dividerX = histLen > 0 ? (histLen / all.length) * w : 0;
-
-    return (
-      <svg width={w} height={h + 10} className="mt-1">
-        <line x1={dividerX} y1={0} x2={dividerX} y2={h} stroke="#9CA3AF" strokeDasharray="3,3" strokeWidth={1} />
-        <polyline fill="none" stroke="#3B82F6" strokeWidth={2} points={points} />
-        <text x={2} y={h + 9} fontSize={8} fill="#9CA3AF">History</text>
-        <text x={dividerX + 4} y={h + 9} fontSize={8} fill="#F59E0B">Forecast</text>
-      </svg>
-    );
-  };
-
-  // Map fly-to helper component
-  const FlyToCell = ({ target }) => {
-    const map = useMap();
-    useEffect(() => {
-      if (target) {
-        map.flyTo([target.lat, target.lng], 10, { duration: 1.2 });
-      }
-    }, [target, map]);
-    return null;
-  };
 
   // Live-feed ticker: 5 newest events
   const newestEvents = [...eventPoints].sort((a, b) => {
@@ -1828,7 +1837,7 @@ function CounterfeitScannerView() {
 
     // Stop every track on the raw stream
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => { try { track.stop(); } catch (e) {} });
+      streamRef.current.getTracks().forEach(track => { try { track.stop(); } catch { /* ignore */ } });
       streamRef.current = null;
     }
 
@@ -1837,12 +1846,12 @@ function CounterfeitScannerView() {
       try {
         videoRef.current.pause();
         if (videoRef.current.srcObject) {
-          videoRef.current.srcObject.getTracks().forEach(t => { try { t.stop(); } catch (e) {} });
+          videoRef.current.srcObject.getTracks().forEach(t => { try { t.stop(); } catch { /* ignore */ } });
           videoRef.current.srcObject = null;
         }
         videoRef.current.removeAttribute('src');
         videoRef.current.load();
-      } catch (e) {}
+      } catch { /* ignore */ }
     }
   };
 
@@ -1999,7 +2008,6 @@ function CounterfeitScannerView() {
   // ─── Cleanup on unmount ────────────────────────────────────────────────────
   useEffect(() => {
     return () => stopCamera();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ─── JSX ──────────────────────────────────────────────────────────────────
@@ -2235,6 +2243,35 @@ function CounterfeitScannerView() {
     </div>
   );
 }
+const LayerCard = ({ title, icon, layer, metricLabel, metricValue }) => {
+  if (!layer) return null;
+  const isFlagged = layer.is_deepfake;
+  return (
+    <div className={`border rounded p-3 ${isFlagged ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          {icon}
+          <span className="text-xs font-bold uppercase tracking-wider text-gray-700">{title}</span>
+        </div>
+        <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${isFlagged ? 'bg-red-200 text-red-800' : 'bg-green-200 text-green-800'}`}>
+          {isFlagged ? 'FLAGGED' : 'CLEAR'}
+        </span>
+      </div>
+      {metricLabel && (
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-[10px] text-gray-500 font-bold uppercase">{metricLabel}</span>
+          <span className={`text-sm font-mono font-bold ${isFlagged ? 'text-[#D32F2F]' : 'text-[#138808]'}`}>{metricValue}</span>
+        </div>
+      )}
+      <div className="w-full bg-gray-200 rounded-full h-1.5 mb-2">
+        <div className={`h-1.5 rounded-full transition-all duration-500 ${isFlagged ? 'bg-[#D32F2F]' : 'bg-[#138808]'}`}
+          style={{ width: `${Math.min(layer.confidence || 0, 100)}%` }}></div>
+      </div>
+      <p className="text-[10px] text-gray-600 leading-relaxed">{layer.detail || ''}</p>
+    </div>
+  );
+};
+
 function AcousticForensicsView({ setToast }) {
   const [base64Audio, setBase64Audio] = useState(null);
   const [audioUrl, setAudioUrl] = useState(null);
@@ -2257,36 +2294,7 @@ function AcousticForensicsView({ setToast }) {
       const response = await fetch('http://127.0.0.1:8000/api/analyze-audio', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ audio_base64: base64Audio }) });
       const data = await response.json();
       if (data.success) { setScanResult(data.analysis); } else { setScanResult({ audio_signal: "Parse Failed", error: data.error || "Unknown server error processing audio." }); }
-    } catch (e) { setToast("Failed to connect to API. Is your Python server running?"); } finally { setIsScanning(false); }
-  };
-
-  const LayerCard = ({ title, icon, layer, metricLabel, metricValue }) => {
-    if (!layer) return null;
-    const isFlagged = layer.is_deepfake;
-    return (
-      <div className={`border rounded p-3 ${isFlagged ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            {icon}
-            <span className="text-xs font-bold uppercase tracking-wider text-gray-700">{title}</span>
-          </div>
-          <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${isFlagged ? 'bg-red-200 text-red-800' : 'bg-green-200 text-green-800'}`}>
-            {isFlagged ? 'FLAGGED' : 'CLEAR'}
-          </span>
-        </div>
-        {metricLabel && (
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[10px] text-gray-500 font-bold uppercase">{metricLabel}</span>
-            <span className={`text-sm font-mono font-bold ${isFlagged ? 'text-[#D32F2F]' : 'text-[#138808]'}`}>{metricValue}</span>
-          </div>
-        )}
-        <div className="w-full bg-gray-200 rounded-full h-1.5 mb-2">
-          <div className={`h-1.5 rounded-full transition-all duration-500 ${isFlagged ? 'bg-[#D32F2F]' : 'bg-[#138808]'}`}
-            style={{ width: `${Math.min(layer.confidence || 0, 100)}%` }}></div>
-        </div>
-        <p className="text-[10px] text-gray-600 leading-relaxed">{layer.detail || ''}</p>
-      </div>
-    );
+    } catch (error) { console.error(error); setToast("Failed to connect to API. Is your Python server running?"); } finally { setIsScanning(false); }
   };
 
   return (
