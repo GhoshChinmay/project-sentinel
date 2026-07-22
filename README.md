@@ -45,22 +45,22 @@ graph TD
     classDef external fill:#ef4444,stroke:#991b1b,stroke-width:2px,color:#fff,font-weight:bold;
 
     %% Frontend Components
-    subgraph Frontend [Client Tier (React + Vite)]
+    subgraph Frontend ["Client Tier (React + Vite)"]
         direction TB
-        NP[Law Enforcement Nodal Portal]
-        CS[Citizen Shield App]
+        NP["Law Enforcement Nodal Portal"]
+        CS["Citizen Shield App"]
     end
 
     %% Backend Components
-    subgraph Backend [Backend API Tier (FastAPI)]
+    subgraph Backend ["Backend API Tier (FastAPI)"]
         direction TB
-        API[API Gateway / WebSocket]
-        NLP[NLP & Semantics Engine]
-        Acoustic[Tri-Layer Acoustic Forensics]
-        Vision[Vision AI Engine]
-        Graph[Graph Intelligence & Correlation]
-        Geo[GCPI Geo-Spatial Engine]
-        Evidence[Evidence Generator]
+        API["API Gateway / WebSocket"]
+        NLP["NLP & Semantics Engine"]
+        Acoustic["Tri-Layer Acoustic Forensics"]
+        Vision["Vision AI Engine"]
+        Graph["Graph Intelligence & Correlation"]
+        Geo["GCPI Geo-Spatial Engine"]
+        Evidence["Evidence Generator"]
 
         API --> NLP
         API --> Acoustic
@@ -72,19 +72,19 @@ graph TD
     end
 
     %% Database
-    subgraph Storage [Data Tier]
-        DB[(SQLite / SQLAlchemy)]
+    subgraph Storage ["Data Tier"]
+        DB[("SQLite / SQLAlchemy")]
     end
 
     %% AI Models
-    subgraph AI [External AI Services]
-        Groq[Groq / LLaMA 3.3]
-        OpenRouter[Vision API]
+    subgraph AI ["External AI Services"]
+        Groq["Groq / LLaMA 3.3"]
+        OpenRouter["Vision API"]
     end
 
     %% Connections
-    NP <-->|REST & WS| API
-    CS <-->|REST & WS| API
+    NP <-->|"REST & WS"| API
+    CS <-->|"REST & WS"| API
 
     NLP <--> Groq
     Vision <--> OpenRouter
